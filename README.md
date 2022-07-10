@@ -382,4 +382,67 @@ class ApiKeysController < ApplicationController
 end
 ```
 
+Once again we use another method provided by Rails to handle the grunt-work of HTTP authentication.  The `authenticate_with_http_basic` will parse the `Authorization` header.  Unlike the token method variant caring about the `Bearer` scheme, the basic variant only cares about the `Basic` scheme.  Here's the doc [ActionController::HttpAuthentication::Basic::ControllerMethods](https://api.rubyonrails.org/classes/ActionController/HttpAuthentication/Basic/ControllerMethods.html).
+
+A basic `Authorization` header will look something like:
+
+```bash
+Authorization: Basic foo@woohoo.com:topsecret
+```
+
+The email and password values will actually be base64 encoded and rails will automatically handle parsing and decoding these values.  You don't need Devise!
+
+Let's create our first API key (using email / password from seed data):
+
+```bash
+curl -v -X POST http://localhost:3000/api-keys \
+        -u foo@woohoo.com:topsecret
+< HTTP/1.1 201 Created
+{
+  "id":5,
+  "bearer_type": "User",
+  "bearer_id":5,
+  "token": "ac49cdacb9fc08330714f1fdfc9145e3",
+  "created_at": "2022-07-10T23:19:56.627Z",
+  "updated_at": "2022-07-10T23:19:56.627Z"
+}
+```
+
+Looking in the rails console we now see two ApiKey records for this user (remember one was created via the seed data).
+
+```ruby
+[1] pry(main)> user = User.find_by(email: 'foo@woohoo.com')
+=> #<User:0x00000001169c6708
+ id: 5,
+ email: "foo@woohoo.com",
+ password_digest: "[FILTERED]",
+ created_at: Sat, 09 Jul 2022 20:11:08.825997000 UTC +00:00,
+ updated_at: Sat, 09 Jul 2022 20:11:08.825997000 UTC +00:00>
+
+[2] pry(main)> user.api_keys
+=> [#<ApiKey:0x0000000116b18368
+  id: 2,
+  bearer_type: "User",
+  bearer_id: 5,
+  token: "[FILTERED]",
+  created_at: Sat, 09 Jul 2022 20:11:08.835937000 UTC +00:00,
+  updated_at: Sat, 09 Jul 2022 20:11:08.835937000 UTC +00:00>,
+ #<ApiKey:0x0000000116b30d78
+  id: 5,
+  bearer_type: "User",
+  bearer_id: 5,
+  token: "[FILTERED]",
+  created_at: Sun, 10 Jul 2022 23:19:56.627854000 UTC +00:00,
+  updated_at: Sun, 10 Jul 2022 23:19:56.627854000 UTC +00:00>]
+```
+
+Nice, but before we celebrate, let's make sure a bad password and bad emial are properly rejected with a 401 response.
+
+```bash
+curl -v -X POST http://localhost:3333/api-keys  -u bar@woohoo.com:topsecret
+< HTTP/1.1 401 Unauthorized
+
+curl -v -X POST http://localhost:3333/api-keys  -u foo@woohoo.com:bad_password
+< HTTP/1.1 401 Unauthorized
+```
 
