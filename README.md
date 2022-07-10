@@ -222,8 +222,13 @@ Let's setup some routes:
 Rails.application.routes.draw do
   ...
 
-  resources :api_keys, path: '/api-keys', only: [:index, :create, :destroy]
+  # If we use `resources` then we would need to manage the ApiKey ids for
+  # the destroy.  For simplicity we'll do the below but putting note here.
+  # resources :api_keys, path: '/api-keys', only: [:index, :create, :destroy]
 
+  get '/api-keys', to: 'api_keys#index'
+  post '/api-keys', to: 'api_keys#create'
+  delete '/api-keys', to: 'api_keys#destroy'
   ...
 end
 ```
@@ -281,11 +286,100 @@ These methods will handle parsing of the `Authorization` HTTP header. There are 
 An `Authorization` header for an API key will look something like this:
 
 ```bash
-Authorization: Bearer 5c8e4327fd8b2bf3118f82b13890d89d
+Authorization: Bearer 5c8e4327fd8b2bf3118f82b13890d89dc
 ```
 
 This is how users will likely be interacting with the API.
 
 
 ### Controlling API Key Authentication
+
+Let's define an empty controller so that we can start testing the API using `curl`.
+
+```ruby
+# app/controllers/api_keys_controller.rb
+
+class ApiKeysController < ApplicationController
+  def index
+  end
+
+  def create
+  end
+
+  def destroy
+  end
+end
+```
+
+Smoke test of endpoints with `curl`:
+
+```bash
+curl -v -X POST http://localhost:3000/api-keys
+< HTTP/1.1 204 No Content
+
+curl -v -X DELETE http://localhost:3000/api-keys
+< HTTP/1.1 204 No Content
+
+curl -v -X GET http://localhost:3000/api-keys
+< HTTP/1.1 204 No Content
+```
+
+So far so good, no 404 or 5xx errors.  Now let's add our authenticatable concern to our controller.
+
+```ruby
+# app/controllers/api_keys_controller.rb
+
+class ApiKeysController < ApplicationController
+  include ApiKeyAutenticatable
+
+  # Require token auth for index
+  prepend_before_action :authenticate_with_api_key!, only: [:index]
+
+  # Optional token auth for logout
+  prepend_before_action :authenticate_with_api_key, only: [:destroy]
+
+  ...
+```
+
+Run the smoke test again.
+
+```bash
+curl -v -X POST http://localhost:3000/api-keys
+< HTTP/1.1 204 No Content
+
+curl -v -X DELETE http://localhost:3000/api-keys
+< HTTP/1.1 204 No Content
+
+curl -v -X GET http://localhost:3000/api-keys
+< HTTP/1.1 401 Unauthorized
+```
+
+Note our `GET` request now responds with a `401` HTTP status as intended.  Remember the `POST` doesn't require authentication and it's optional for the `DELETE` end-point.
+
+
+### Create an API Key
+
+```ruby
+class ApiKeysController < ApplicationController
+  include ApiKeyAuthenticatable
+
+  ...
+
+  def create
+    authenticate_with_http_basic do |email, password|
+      user = User.find_by email: email
+      if user&.authenticate(password)
+        api_key = user.api_keys.create! token: SecureRandom.hex
+        render json: api_key, status: :created and return
+      end
+    end
+
+    render status: :unauthorized
+  end
+
+  ...
+
+end
+```
+
 
