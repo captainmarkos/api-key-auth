@@ -84,7 +84,7 @@ Pry.config.theme = 'vividchalk'
 ```
 
 
-#### Create a user model
+### Create a User Model
 
 Firstly, we'll need a user's table.  Pretty standard stuff.
 
@@ -124,7 +124,7 @@ end
 Rails has out-of-the-box support for user password authentication using the `has_secure_password` concern. Here's the doc for [ActiveModel::SecurePassword](https://api.rubyonrails.org/v7.0.3/classes/ActiveModel/SecurePassword/ClassMethods.html) and the [APIdoc](https://apidock.com/rails/v4.0.2/ActiveModel/SecurePassword/ClassMethods/has_secure_password).  You Don't Need Devise.
 
 
-#### Create an API Key Model
+### Create an API Key Model
 
 We need another model for `ApiKey`.
 
@@ -170,7 +170,7 @@ end
 ```
 
 
-#### Create Seed Data
+### Create Seed Data
 
 To verify our work we'll make some seed data and drive from the rails console.
 
@@ -211,3 +211,81 @@ end
 
 
 #### Routes For API Key Authentication
+
+Let's setup some routes:
+
+- `GET /api-keys`: to list a bearer's API keys
+- `POST /api-keys`: create a new API key - a standard 'login'
+- `DELETE /api-keys`: to revoke the current API key - 'logout'
+
+```ruby
+Rails.application.routes.draw do
+  ...
+
+  resources :api_keys, path: '/api-keys', only: [:index, :create, :destroy]
+
+  ...
+end
+```
+
+
+### Create an API Key Auth Concern
+
+Create a typical Rails concern that allows controllers to require API key authentication `app/controllers/concerns/api_key_authenticatable.rb`.
+
+```ruby
+module ApiKeyAuthenticatable
+  extend ActiveSupport::Concern
+
+  include ActionController::HttpAuthentication::Basic::ControllerMethods
+  include ActionController::HttpAuthentication::Token::ControllerMethods
+ 
+  attr_reader :current_api_key
+  attr_reader :current_bearer
+ 
+  # Use this to raise an error and automatically respond with
+  # a 401 HTTP status code when API key authentication fails
+  def authenticate_with_api_key!
+    @current_bearer = authenticate_or_request_with_http_token &method(:authenticator)
+  end
+ 
+  # Use this for optional API key authentication
+  def authenticate_with_api_key
+    @current_bearer = authenticate_with_http_token &method(:authenticator)
+  end
+ 
+  private
+ 
+  attr_writer :current_api_key
+  attr_writer :current_bearer
+ 
+  def authenticator(http_token, options)
+    @current_api_key = ApiKey.find_by(token: http_token)
+ 
+    current_api_key&.bearer
+  end
+end
+```
+
+Rails comes batteries-included.  By including a couple core classes we can take advantage of some useful methods:
+
+- `#authenticate_or_request_with_http_token`: authenticate with an HTTP token, otherwise automatically request authentication - rails will respond with a `401 Unauthorized` HTTP status code.
+- `#authenticate_with_http_token`: attempt to authenticate with an HTTP token, but don't raise an error if the token ends up being nil.
+
+In both cases, we're going to be passing in our `#authenticator` method to handle the API key lookup. Rails will handle the rest. We'll be storing the current API key bearer and the current API key into controller-level instance variables, `current_bearer` and `current_api_key`, respectively.
+
+See the docs for [ActionController::HttpAuthentication](https://api.rubyonrails.org/classes/ActionController/HttpAuthentication.html).
+
+These methods will handle parsing of the `Authorization` HTTP header. There are multiple HTTP authorization schemes, but these 2 methods will only care about the `Bearer` scheme. We'll get into others.
+
+An `Authorization` header for an API key will look something like this:
+
+```bash
+Authorization: Bearer 5c8e4327fd8b2bf3118f82b13890d89d
+```
+
+This is how users will likely be interacting with the API.
+
+
+### Controlling API Key Authentication
+
