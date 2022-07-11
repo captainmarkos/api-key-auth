@@ -185,6 +185,9 @@ emails.each do |email|
 end
 ```
 
+```bash
+bin/rails db:seed
+```
 
 ```ruby
 [1] pry(main)> User.first.authenticate('foo')
