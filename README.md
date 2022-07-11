@@ -185,8 +185,12 @@ emails.each do |email|
 end
 ```
 
+Generate the seed data and then hop into the rails console.
+
 ```bash
 bin/rails db:seed
+
+bin/rails console
 ```
 
 ```ruby
