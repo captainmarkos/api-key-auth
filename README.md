@@ -217,7 +217,7 @@ bin/rails console
 ```
 
 
-#### Routes For API Key Authentication
+### Routes For API Key Authentication
 
 Let's setup some routes:
 
@@ -452,4 +452,121 @@ curl -v -X POST http://localhost:3333/api-keys  -u bar@woohoo.com:topsecret
 curl -v -X POST http://localhost:3333/api-keys  -u foo@woohoo.com:bad_password
 < HTTP/1.1 401 Unauthorized
 ```
+
+
+### Listing API Keys
+
+Next we'll work on the `#index` action.  Open up the `ApiKeysController` and let's list the API keys for the `current_bearer`.
+
+```ruby
+class ApiKeysController < ApplicationController
+  include ApiKeyAuthenticatable
+
+  ...
+
+  def index
+    render json: current_bearer.api_keys
+  end
+
+  ...
+```
+
+Smoke test with `curl` (use a valid token).
+
+```bash
+curl -v -X GET http://localhost:3333/api-keys -H 'Authorization: Bearer 8b0de4dc40339cd7745cf2128edb13c9'
+
+< HTTP/1.1 200 OK
+[
+  {
+    "id":2,
+    "bearer_type": "User",
+    "bearer_id":5,
+    "token": "8b0de4dc40339cd7745cf2128edb13c9",
+    "created_at": "2022-07-09T20:11:08.835Z",
+    "updated_at": "2022-07-09T20:11:08.835Z"
+  },
+  {
+    "id":5,
+    "bearer_type": "User",
+    "bearer_id":5,
+    "token": "ac49cdacb9fc08330714f1fdfc9145e3",
+    "created_at": "2022-07-10T23:19:56.627Z",
+    "updated_at": "2022-07-10T23:19:56.627Z"
+  }
+]
+```
+
+
+### Revoking API Keys
+
+To revoke an API key we need to update the `#destory` action of our controller.
+
+```ruby
+class ApiKeysController < ApplicationController
+  include ApiKeyAuthenticatable
+
+  ...
+
+  def destroy
+    current_api_key&.destroy
+  end
+
+  ...
+```
+
+That's all it takes.  Now let's test it out by revoking a API key with `curl`.  First let's find the key in the rails console.
+
+```ruby
+[1] pry(main)> User.last.api_keys.first.token
+=> "9dc13ad94a52592aeb742cae3e8b620e"
+```
+
+Now revoke it with `curl`.
+
+```bash
+curl -v -X DELETE http://localhost:3000/api-keys \
+        -H 'Authorization: Bearer 9dc13ad94a52592aeb742cae3e8b620e'
+< HTTP/1.1 204 No Content
+```
+
+We got a `204 No Content` status but did it actually work?  Remember our `DELETE` endpoint has optional API key authentication, unlike the list endpoint which requires authentication, so even if an invalid API key was provided, ti would still return a `204 No Content` status.  This is probably not ideal but it works to exemplify the 2 different authentication actions.
+
+Looking in the rails console we'll see that API key is deleted (and can also be seen by looking at the rails server output).
+
+```bash
+Started DELETE "/api-keys" for 127.0.0.1 at 2022-07-12 07:30:38 -0400
+Processing by ApiKeysController#destroy as */*
+   (0.1ms)  SELECT sqlite_version(*)
+  ↳ app/controllers/concerns/api_key_authenticatable.rb:27:in `authenticator'
+  ApiKey Load (0.7ms)  SELECT "api_keys".* FROM "api_keys" WHERE "api_keys"."token" = ? LIMIT ?  [["token", "[FILTERED]"], ["LIMIT", 1]]
+  ↳ app/controllers/concerns/api_key_authenticatable.rb:27:in `authenticator'
+  User Load (0.1ms)  SELECT "users".* FROM "users" WHERE "users"."id" = ? LIMIT ?  [["id", 10], ["LIMIT", 1]]
+  ↳ app/controllers/concerns/api_key_authenticatable.rb:29:in `authenticator'
+  TRANSACTION (0.0ms)  begin transaction
+  ↳ app/controllers/api_keys_controller.rb:27:in `destroy'
+  ApiKey Destroy (0.3ms)  DELETE FROM "api_keys" WHERE "api_keys"."id" = ?  [["id", 8]]
+  ↳ app/controllers/api_keys_controller.rb:27:in `destroy'
+  TRANSACTION (0.4ms)  commit transaction
+  ↳ app/controllers/api_keys_controller.rb:27:in `destroy'
+Completed 204 No Content in 22ms (ActiveRecord: 2.3ms | Allocations: 9671)
+```
+
+### Patching Vulnerabilities
+
+
+
+
+
+### To Bear or not to Bear
+
+Since our API keys are polymorphic, we can have multiple authenticatable models such as an `Admin` model or a `PacMan`.  The sky's the limit as long as the code is flexible enough and not expecting a `User` everywhere a bearer is.  There shouldn't be any issues making some obscure model an API key bearer.  Pair this with an authorization gem like `Pundit` and it'll work nicely.
+
+
+### Wrap Up
+
+We've implemented a login endpoint where we can generate new API keys, a logout endpoint where we can revoke existing API keys, as well as an endpoint allowing us to list the current user's API keys. From here, adding API key authentication to other controller actions is as simple as adding one of the 2 before_action callbacks.
+
+Some people may raise concern that we're "rolling our own auth" here, but that's actually not true. We're using tools that Rails provides for us out-of-the-box. API key authentication doesn't have to be complex, and you most certainly don't have to use a third-party gem like Devise to implement it.
+
 

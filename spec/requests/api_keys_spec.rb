@@ -20,7 +20,13 @@ RSpec.describe 'ApiKeys', type: :request do
 
         it 'list bearer API keys' do
           get '/api-keys', headers: headers
-          expect(response).to have_http_status(:no_content) # 204
+          expect(response).to have_http_status(:ok) # 200
+
+          json = JSON.parse(response.body)
+          expect(json.length).to eq user.api_keys.length
+          expect(json.dig(0, 'bearer_id')).to eq user.id
+          expect(json.dig(0, 'bearer_type')).to eq user.class.name
+          expect(json.dig(0, 'token')).to eq user.api_keys.first.token
         end
       end
     end
@@ -59,23 +65,38 @@ RSpec.describe 'ApiKeys', type: :request do
       end
     end
   end
-=begin
 
   describe 'DELETE /api-keys' do
-    context '' do
-      let(:auth_scheme) { "Basic #{encoded}" }
+    context 'when valid token provided' do
+      let(:admin_user) { create(:user, :with_api_keys) }
+      let(:auth_scheme) { "Bearer #{admin_user.api_keys.first.token}" }
 
-      context '' do
-        it 'destroys an ApiKey' do
-          post '/api-keys', headers: headers
-          #post '/api-keys', params: { api_key: {id: 1} }, headers: headers
+      context 'when attempting to revoke an api key' do
+        it 'destroys an ApiKey for a user' do
+          expect(admin_user.api_keys.length).to eq 1
+          delete '/api-keys', headers: headers
 
-          expect(response.content_type).to eq('application/json; charset=utf-8')
-          expect(response).to have_http_status(:created)
+          admin_user.reload
+          expect(response).to have_http_status(:no_content) # 204
+          expect(admin_user.api_keys.length).to eq 0
+        end
+      end
+    end
+
+    context 'when invalid token provided' do
+      let(:admin_user) { create(:user, :with_api_keys) }
+      let(:auth_scheme) { 'Bearer invalid-token' }
+
+      context 'when attempting to revoke an api key' do
+        it 'does not destroy an ApiKey for a user' do
+          expect(admin_user.api_keys.length).to eq 1
+          delete '/api-keys', headers: headers
+
+          admin_user.reload
+          expect(response).to have_http_status(:no_content) # 204
+          expect(admin_user.api_keys.length).to eq 1
         end
       end
     end
   end
-
-=end
 end
