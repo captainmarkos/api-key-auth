@@ -231,8 +231,6 @@ Rails.application.routes.draw do
 
   # If we use `resources` then we would need to manage the ApiKey ids for
   # the destroy.  For simplicity we'll do the below but putting note here.
-  # resources :api_keys, path: '/api-keys', only: [:index, :create, :destroy]
-
   get '/api-keys', to: 'api_keys#index'
   post '/api-keys', to: 'api_keys#create'
   delete '/api-keys', to: 'api_keys#destroy'
@@ -552,10 +550,202 @@ Processing by ApiKeysController#destroy as */*
 Completed 204 No Content in 22ms (ActiveRecord: 2.3ms | Allocations: 9671)
 ```
 
+
 ### Patching Vulnerabilities
 
+With the current implementation there are 2 vulnerabilities:
+
+1. Storing API keys as plaintext (a big no-no, tokens should be treated like passwords)
+2. Tokens could be vulnerable to timing attacks (yes, even with a database index)
+
+Let's start the patch work by renaming the `token` column in the `api_keys` table to be `token_digest`.  For this we can do `bin/rails db:rollback` and the modify the `CreateApiKeys` migration.
+
+```ruby
+class CreateApiKeys < ActiveRecord::Migration[7.0]
+  def change
+    create_table :api_keys do |t|
+      t.references :bearer, polymorphic: true, index: true
+      t.string :token_digest, null: false
+
+      t.timestamps
+    end
+
+    add_index :api_keys, :token_digest, unique: true
+  end
+end
+```
+
+Run the migration with `bin/rails db:migrate`.  Next will update the `ApiKey` model to use a SHA-256 HMAC function, and also provide a method fro authenticating an API key by token.
+
+```ruby
+class ApiKey < ApplicationRecord
+  HMAC_SECRET_KEY = ENV.fetch('API_KEY_HMAC_SECRET_KEY')
+
+  belongs_to :bearer, polymorphic: true
+
+  before_create :generate_token_hmac_digest
+
+  # Virtual attribute for raw token value allowing us to respond with the
+  # API key's non-hashed token value but only directly after creation.
+  attr_accessor :token
+
+  def self.authenticate_by_token!(token)
+    digest = OpenSSL::HMAC.hexdigest('SHA256', HMAC_SECRET_KEY, token)
+
+    find_by!(token_digest: digest)
+  end
+
+  def self.authenticate_by_token(token)
+    authenticate_by_token!(token)
+  rescue ActiveRecord::RecordNotFound
+    nil
+  end
+
+  # Add virtual token attribute to serializable attributes
+  # and exclude the token's HMAC digest
+  def serializable_hash(options = nil)
+    h = super(options.merge(except: 'token_digest'))
+    h.merge!('token' => token) if token.present?
+    h
+  end
+
+  private
+
+  def generate_token_hmac_digest
+    raise(ActiveRecord::RecordInvalid, 'token is required') if token.blank?
+
+    digest = OpenSSL::HMAC.hexdigest('SHA256', HMAC_SECRET_KEY, token)
+
+    self.token_digest = digest
+  end
+end
+```
+
+A few new methods were added to the `ApiKey` model:
+
+- A new virtual attribute called `token` which holds the plaintext value of our API key's token.  This virtual attribute is only available after the model is created.
+- Redefining and API key's `serializable_hash` attributes to include the `token` virtual attribute when present and to always exclude `token_digest`.
+- Band and non-bang variants of `authenticate_by_token` which handles securely looking up an API key by token.
+
+We need to set the `API_KEY_HMAC_SECRET_KEY` environment variable.  First generate the secret key in the rails console.
+
+```ruby
+[1] pry(main)> SecureRandom.hex(32)
+=> "2fd6abfe6d51dce36bc17ffec652c7cc16d9a9b241e04f00f1a38a83db202728"
+```
+
+Now set the environment variable.
+
+```bash
+export API_KEY_HMAC_SECRET_KEY=2fd6abfe6d51dce36bc17ffec652c7cc16d9a9b241e04f00f1a38a83db202728
+```
+
+NOTE that the HMAC secret key should never change.  Changing the secret key will invalidate ALL existing API keys since we would no longer be able to authenticate them.
+
+Lastly we want to update the `#authenticator` method in the `ApiKeyAuthenticatable` concern to use our new `ApiKey.authenticate_by_token` method.
+
+```ruby
+module ApiKeyAuthenticatable
+  ...
+
+  def authenticator(http_token, options)
+    @current_api_key = ApiKey.authenticate_by_token(http_token)
+
+    current_api_key&.bearer
+  end
+end
+```
 
 
+#### Verifying our Patch
+
+Let's generate a new API key:
+
+```bash
+curl -v -X POST http://localhost:3333/api-keys -u merp@flerp.com:topsecret
+<  HTTP/1.1 201 Created
+{
+  "bearer_id" : 20,
+  "bearer_type" : "User",
+  "created_at" : "2022-07-15T05:25:22.418Z",
+  "id" : 8,
+  "token" : "76d5068833cb36989af013fbdf71dd34",
+  "updated_at" : "2022-07-15T05:25:22.418Z"
+}
+```
+
+Looks good.  The API key's token is correctly being generated, and the raw token value is still being serialized in the JSON response. But let's assert that the token is no longer being stored in plaintext:
+
+```ruby
+[1] pry(main)> ApiKey.last.token_digest
+=> "b558cbaaab1b469149027f3bf8840322fad7e564933f356a6e5d9afe217e89e2"
+```
+
+Looks correct. Now let's also make sure we can still authenticate with our API key's token, and we also want to assert that we're not leaking our token_digest in the list of serialized API keys.
+
+```bash
+curl -v -X GET http://localhost:3000/api-keys -H 'Authorization: Bearer c2d0e6b8bbeb295a8e6f144fe7ba0596'
+
+< HTTP/1.1 200 OK
+[
+   {
+      "id" : 3,
+      "bearer_id" : 20,
+      "bearer_type" : "User",
+      "created_at" : "2022-07-12T16:32:15.148Z",
+      "updated_at" : "2022-07-12T16:32:15.148Z"
+   },
+   {
+      "id" : 9,
+      "bearer_id" : 20,
+      "bearer_type" : "User",
+      "created_at" : "2022-07-15T05:36:59.561Z",
+      "updated_at" : "2022-07-15T05:36:59.561Z"
+   }
+]
+```
+
+And once again, things look good. But now we have a new issue. Since we can no longer read the tokens of other API keys, we're unable to delete them using our existing API key deletion endpoint. To fix this issue, let's rework our `"logout"` endpoint.
+
+Let's make a change to our `routes.rb` by removing the `get`, `post` and `delete` routes and using the rails `resources` found in [ActionDispatch::Routing::Mapper::Resources](https://api.rubyonrails.org/v7.0.3/classes/ActionDispatch/Routing/Mapper/Resources.html#method-i-resources).
+
+```ruby
+Rails.application.routes.draw do
+  resources :api_keys, path: '/api-keys', only: [:index, :create, :destroy]
+end
+```
+
+This will create the following routes and notice the change is that now the `DELETE` needs an `:id`:
+
+```bash
+bin/rails routes
+
+  Prefix Verb   URI Pattern             Controller#Action
+api_keys GET    /api-keys(.:format)     api_keys#index
+         POST   /api-keys(.:format)     api_keys#create
+ api_key DELETE /api-keys/:id(.:format) api_keys#destroy
+```
+
+So we'll also want to update our controller to revoke API keys by ID, rather than simply revoking the current_api_key.
+
+```ruby
+class ApiKeysController < ApplicationController
+  include ApiKeyAuthenticatable
+
+  # Require API key authentication
+  prepend_before_action :authenticate_with_api_key!, only: [:index, :destroy]
+
+  ...
+
+  def destroy
+    api_key = current_bearer.api_keys.find(params[:id]
+
+    api_key.destroy
+  end
+end
+```
+
+Kabam!  The patch added a little bit to the API key model but it resolves vulnerabilities.  And like any good rails dev, specs help to give us more confidence that this works as intended.  That said we can find a request and model spec in the repo.
 
 
 ### To Bear or not to Bear
@@ -570,3 +760,8 @@ We've implemented a login endpoint where we can generate new API keys, a logout 
 Some people may raise concern that we're "rolling our own auth" here, but that's actually not true. We're using tools that Rails provides for us out-of-the-box. API key authentication doesn't have to be complex, and you most certainly don't have to use a third-party gem like Devise to implement it.
 
 
+### Resources & Credits
+
+This is my implementation based (closely) off of [this tutorial](https://keygen.sh/blog/how-to-implement-api-key-authentication-in-rails-without-devise/).  All the credit goes to here as this was for my fun and deeper diving into the topic.  Many thanks for this tutorial!
+
+As a side-note, this is a tutorial for myself.  I take zero-credit and I did this solely for myself and my learning.  I'm happy to make this repo private if it offends anyone.  However for the most part I've found rails developers to be professionals and not so quick to waste their energy feeling self-important and offended.

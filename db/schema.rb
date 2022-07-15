@@ -14,11 +14,11 @@ ActiveRecord::Schema[7.0].define(version: 2022_07_09_193345) do
   create_table "api_keys", force: :cascade do |t|
     t.string "bearer_type"
     t.integer "bearer_id"
-    t.string "token", null: false
+    t.string "token_digest", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["bearer_type", "bearer_id"], name: "index_api_keys_on_bearer"
-    t.index ["token"], name: "index_api_keys_on_token", unique: true
+    t.index ["token_digest"], name: "index_api_keys_on_token_digest", unique: true
   end
 
   create_table "users", force: :cascade do |t|
