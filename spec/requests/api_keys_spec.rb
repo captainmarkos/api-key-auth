@@ -1,7 +1,7 @@
 require 'rails_helper'
 
 RSpec.describe 'ApiKeys', type: :request do
-  before { stub_const('ENV', {'API_KEY_HMAC_SECRET_KEY' => 'asdf'}) }
+  before { stub_const 'ENV', ENV.to_h.merge('API_KEY_HMAC_SECRET_KEY' => 'secret-key') }
 
   describe 'GET /api-keys' do
     context 'with bearer authentication' do

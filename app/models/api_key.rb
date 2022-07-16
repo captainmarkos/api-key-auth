@@ -1,5 +1,5 @@
 class ApiKey < ApplicationRecord
-  HMAC_SECRET_KEY = ENV.fetch('API_KEY_HMAC_SECRET_KEY')
+  HMAC_SECRET_KEY = ENV['API_KEY_HMAC_SECRET_KEY'] || 'test-key'
 
   belongs_to :bearer, polymorphic: true
 
