@@ -23,7 +23,7 @@ class ApiKey < ApplicationRecord
 
   # Add virtual token attribute to serializable attributes
   # and exclude the token's HMAC digest
-  def serializable_hash(options = nil)
+  def serializable_hash(options = {})
     h = super(options.merge(except: 'token_digest'))
     h.merge!('token' => token) if token.present?
     h

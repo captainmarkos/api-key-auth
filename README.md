@@ -763,5 +763,3 @@ Some people may raise concern that we're "rolling our own auth" here, but that's
 ### Resources & Credits
 
 This is my implementation based (closely) off of [this tutorial](https://keygen.sh/blog/how-to-implement-api-key-authentication-in-rails-without-devise/).  All the credit goes to here as this was for my fun and deeper diving into the topic.  Many thanks for this tutorial!
-
-As a side-note, this is a tutorial for myself.  I take zero-credit and I did this solely for myself and my learning.  I'm happy to make this repo private if it offends anyone.  However for the most part I've found rails developers to be professionals and not so quick to waste their energy feeling self-important and offended.

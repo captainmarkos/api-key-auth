@@ -1,6 +1,6 @@
 FactoryBot.define do
   factory :api_key do
-    token { SecureRandom.hex }
+    token_digest { SecureRandom.hex }
 
     transient do
      bearer { create(:user) }
