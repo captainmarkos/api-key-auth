@@ -780,4 +780,4 @@ This is my implementation based (closely) off of [this tutorial](https://keygen.
 
 ### Add 2nd Factor Authentication
 
-The next part of this, which builds upon this, is to implement [API Auth Keys with 2FA](README.md).
+The next part of this, which builds upon this, is to implement [API Key Authentication with 2FA](https://github.com/captainmarkos/api-mfa).
