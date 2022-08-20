@@ -1,15 +1,26 @@
-### API Auth Key
+### API Key Authentication with Rails
 
-Here's we implement API key authentication without using Devise.  When it comes to authentication, Ruby on Rails is a batteries-included framework.
 
-Devise is over-kill for an API.
+In this part we implement API key authentication without using Devise.  When it comes to authentication, Ruby on Rails is a batteries-included framework. Devise is over-kill for an API.
 
+- [Create App and Setup](#create-app-and-setup)
+- [Create a User Model](#create-a-user-model)
+- [Create an API Key Model](#create-an-api-key-model)
+- [Create Seed Data](#create-seed-data)
+- [Routes for API Key Authentication](#routes-for-api-key-authentication)
+- [Create a Concern for API Key Authentication](#create-a-concern-for-api-key-authentication)
+- [Controlling API Key Authentication](#controlling-api-key-authentication)
+- [Create an API Key](#create-an-api-key)
+- [Listing API Keys](#listing-api-keys)
+- [Revoking API Keys](#revoking-api-keys)
+- [Patching Vulnerabilities](#patching-vulnerabilities)
+- [Add 2nd Factor Authentication](#add-2nd-factor-authentication)
 
 
 ### Create App and Setup
 
 ```bash
-rails new api-key-auth --api --database sqlite3 --skip-active-storage --skip-action-cable
+rails new api-key-auth --api --database sqlite3 --skip-active-storage --skip-action-cable --skip-test 
 ```
 
 
@@ -83,6 +94,8 @@ Pry.config.theme = 'vividchalk'
 # Pry.config.theme = 'ocean'
 ```
 
+
+## Part 1
 
 ### Create a User Model
 
@@ -217,7 +230,7 @@ bin/rails console
 ```
 
 
-### Routes For API Key Authentication
+### Routes for API Key Authentication
 
 Let's setup some routes:
 
@@ -239,7 +252,7 @@ end
 ```
 
 
-### Create an API Key Auth Concern
+### Create a Concern for API Key Authentication
 
 Create a typical Rails concern that allows controllers to require API key authentication `app/controllers/concerns/api_key_authenticatable.rb`.
 
@@ -762,4 +775,9 @@ Some people may raise concern that we're "rolling our own auth" here, but that's
 
 ### Resources & Credits
 
-This is my implementation based (closely) off of [this tutorial](https://keygen.sh/blog/how-to-implement-api-key-authentication-in-rails-without-devise/).  All the credit goes to here as this was for my fun and deeper diving into the topic.  Many thanks for this tutorial!
+This is my implementation based (closely) off of [this tutorial](https://keygen.sh/blog/how-to-implement-api-key-authentication-in-rails-without-devise/).  All the credit goes to that author.  This was for my fun and deeper diving into the topic.  Many thanks for this tutorial!
+
+
+### Add 2nd Factor Authentication
+
+The next part of this, which builds upon this, is to implement [API Auth Keys with 2FA](README.md).
